@@ -1,0 +1,36 @@
+name: web_search
+display_name: "网页搜索"
+version: "1.0"
+description: "基于Playwright的网页搜索工具，支持使用搜索引擎搜索信息并提取网页内容。可用于实时信息检索、事实核查、资料收集等场景。"
+parameters:
+  - name: query
+    type: string
+    required: true
+    description: "搜索查询关键词"
+  - name: max_results
+    type: integer
+    required: false
+    default: 5
+    description: "返回的最大结果数量"
+  - name: action
+    type: string
+    required: false
+    default: "search"
+    enum: ["search", "fetch"]
+    description: "操作类型：search=搜索引擎搜索，fetch=直接获取指定URL内容"
+  - name: url
+    type: string
+    required: false
+    description: "当action为fetch时，要获取内容的URL"
+  - name: engine
+    type: string
+    required: false
+    default: "bing"
+    enum: ["bing", "baidu"]
+    description: "搜索引擎选择：bing=必应中国(cn.bing.com)，baidu=百度(www.baidu.com)"
+returns:
+  type: string
+  description: "搜索结果或网页内容的文本摘要"
+entry_point: "searcher.py:WebSearchSkill"
+tags: ["search", "web", "crawler", "information-retrieval"]
+enabled: true

@@ -1,0 +1,40 @@
+name: vlm_analyzer
+display_name: "VLM图像分析器"
+version: "1.0"
+description: "使用视觉语言模型分析图像内容，支持OCR、描述、问答、图表提取等多种功能"
+parameters:
+  - name: action
+    type: string
+    required: true
+    enum: ["analyze", "ocr", "describe", "extract_chart", "answer_question", "compare_images"]
+    description: "分析动作类型"
+  - name: image_path
+    type: string
+    required: true
+    description: "图片路径（单张或多张图片路径，多张用逗号分隔）"
+  - name: prompt
+    type: string
+    required: false
+    description: "自定义提示词（用于analyze和answer_question动作）"
+  - name: question
+    type: string
+    required: false
+    description: "问题（用于answer_question动作）"
+  - name: detail_level
+    type: string
+    required: false
+    default: "medium"
+    enum: ["brief", "medium", "detailed"]
+    description: "描述详细程度（用于describe动作）"
+  - name: aspect
+    type: string
+    required: false
+    default: "overall"
+    enum: ["overall", "similarity", "difference"]
+    description: "比较方面（用于compare_images动作）"
+returns:
+  type: string
+  description: "图像分析结果"
+entry_point: "analyzer.py:VLMAnalyzerSkill"
+tags: ["vlm", "vision", "image", "ocr", "analysis"]
+enabled: true
