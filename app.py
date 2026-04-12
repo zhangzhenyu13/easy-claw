@@ -622,39 +622,56 @@ def main():
         # 生成助手回复
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
+            planning_container = st.container()  # 用于展示计划
+            progress_container = st.container()  # 用于展示步骤进度
             full_response = ""
-            
+
             try:
                 # 准备消息
                 messages = st.session_state.messages.copy()
-                
+
                 # 调用Agent
                 file_paths = st.session_state.file_paths if st.session_state.file_paths else None
-                
+
                 # 流式输出，传入session_id用于Memory记录
                 for response in agent.run(
-                    messages=messages, 
+                    messages=messages,
                     files=file_paths,
                     session_id=st.session_state.session_id
                 ):
                     if response:
                         last_msg = response[-1] if response else {}
+                        msg_name = last_msg.get("name", "")
                         content = last_msg.get("content", "")
-                        
-                        if content:
+
+                        if msg_name == "planning":
+                            # 展示执行计划
+                            with planning_container:
+                                with st.expander("📋 执行计划", expanded=True):
+                                    st.markdown(content)
+                        elif msg_name == "progress":
+                            # 展示步骤执行进度
+                            with progress_container:
+                                st.caption(content)
+                        elif content:
+                            # 最终回复内容
                             full_response = content
                             message_placeholder.markdown(full_response + "▌")
-                
+
                 # 最终输出
-                message_placeholder.markdown(full_response)
-                
-                # 添加助手消息到历史
+                if full_response:
+                    message_placeholder.markdown(full_response)
+
+                # 完成提示
+                st.caption("✅ 处理完成")
+
+                # 添加助手消息到历史（只有最终回复加入历史）
                 assistant_message = {"role": "assistant", "content": full_response}
                 st.session_state.messages.append(assistant_message)
-                
+
                 # 清除已处理的文件
                 st.session_state.file_paths = []
-                
+
             except Exception as e:
                 error_msg = f"抱歉，处理您的请求时出现错误: {str(e)}"
                 message_placeholder.markdown(error_msg)

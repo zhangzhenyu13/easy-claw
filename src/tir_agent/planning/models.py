@@ -44,6 +44,7 @@ class Step:
         retry_count: 当前重试次数
         max_retries: 最大重试次数
         context: 步骤上下文，存放前序步骤结果等
+        tir_history: TIR循环尝试历史记录
     """
     id: str
     description: str
@@ -56,6 +57,7 @@ class Step:
     retry_count: int = 0
     max_retries: int = 2
     context: dict = field(default_factory=dict)  # 存放前序步骤结果等上下文
+    tir_history: list = field(default_factory=list)  # TIR循环尝试历史记录
 
 
 @dataclass
@@ -123,10 +125,20 @@ class ReasoningResult:
         decision: 决策类型
         reasoning: LLM推理说明
         adjusted_params: RETRY时的调整参数
+        observation_analysis: 观察分析 - CoT Step 1 的输出
+        root_cause: 根因诊断 - CoT Step 2 的输出
+        recovery_strategy: 恢复策略 - CoT Step 3 的输出
+        confidence: 决策置信度 (0.0-1.0)
+        lessons_learned: 本次尝试的经验教训
     """
     decision: StepDecision
     reasoning: str = ""              # LLM推理说明
     adjusted_params: Optional[dict] = None  # RETRY时的调整参数
+    observation_analysis: str = ""   # 观察分析 - CoT Step 1 的输出
+    root_cause: str = ""             # 根因诊断 - CoT Step 2 的输出
+    recovery_strategy: str = ""      # 恢复策略 - CoT Step 3 的输出
+    confidence: float = 0.5          # 决策置信度 (0.0-1.0)
+    lessons_learned: str = ""        # 本次尝试的经验教训
 
 
 @dataclass

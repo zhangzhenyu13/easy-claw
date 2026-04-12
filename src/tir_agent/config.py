@@ -55,11 +55,20 @@ class Settings(BaseSettings):
     complexity_threshold: str = Field(default="auto", alias="COMPLEXITY_THRESHOLD")
     max_tir_loops: int = Field(default=5, alias="MAX_TIR_LOOPS")  # 单步 TIR 循环最大次数
     
+    # ReAct执行模式配置
+    execution_mode: str = Field(default="auto", alias="EXECUTION_MODE")  # auto(双层模式), react(纯ReAct), planning(纯Planning)
+    react_max_iterations: int = Field(default=10, alias="REACT_MAX_ITERATIONS")  # ReAct最大迭代次数
+    max_react_per_step: int = Field(default=5, alias="MAX_REACT_PER_STEP")  # 双层模式下每步ReAct最大迭代次数
+    
     # 工具输出配置
     max_tool_output_chars: int = Field(default=4000, alias="MAX_TOOL_OUTPUT_CHARS")
     
     # ContextManager配置
     max_context_tokens: int = Field(default=30000, alias="MAX_CONTEXT_TOKENS")
+    
+    # Prompt配置
+    prompt_version: str = Field(default="default", alias="PROMPT_VERSION")
+    prompts_dir: str = Field(default="prompts", alias="PROMPTS_DIR")
     
     class Config:
         env_file = ".env"
@@ -137,10 +146,18 @@ except Exception:
             self.planning_enabled = os.getenv("PLANNING_ENABLED", "true").lower() == "true"
             self.complexity_threshold = os.getenv("COMPLEXITY_THRESHOLD", "auto")
             self.max_tir_loops = int(os.getenv("MAX_TIR_LOOPS", "5"))  # 单步 TIR 循环最大次数
+            
+            # ReAct执行模式配置
+            self.execution_mode = os.getenv("EXECUTION_MODE", "auto")  # auto(双层模式), react(纯ReAct), planning(纯Planning)
+            self.react_max_iterations = int(os.getenv("REACT_MAX_ITERATIONS", "10"))  # ReAct最大迭代次数
+            self.max_react_per_step = int(os.getenv("MAX_REACT_PER_STEP", "5"))  # 双层模式下每步ReAct最大迭代次数
             # 工具输出配置
             self.max_tool_output_chars = int(os.getenv("MAX_TOOL_OUTPUT_CHARS", "4000"))
             # ContextManager配置
             self.max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "30000"))
+            # Prompt配置
+            self.prompt_version = os.getenv("PROMPT_VERSION", "default")
+            self.prompts_dir = os.getenv("PROMPTS_DIR", "prompts")
         
         def get_llm_config(self) -> dict:
             if self.model_type == "qwen_dashscope":

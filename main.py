@@ -96,6 +96,7 @@ def run_cli(args):
     
     # 生成session_id
     session_id = str(uuid.uuid4())
+    print(f"\n📍 Session ID: {session_id}")
     messages = []
     
     while True:
@@ -136,7 +137,8 @@ def run_cli(args):
                         response_text = content
             
             print()
-            
+            print("\n✅ 回复完成")
+
             messages.append({"role": "assistant", "content": response_text})
             
         except KeyboardInterrupt:

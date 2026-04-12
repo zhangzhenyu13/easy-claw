@@ -1,8 +1,14 @@
 import logging
 import json
-from typing import Optional
+from typing import Optional, Any
 
 logger = logging.getLogger("tir_agent.context")
+
+# 导入PromptManager，用于类型提示
+try:
+    from .prompt_manager import PromptManager
+except ImportError:
+    PromptManager = None
 
 
 class ContextManager:
@@ -18,9 +24,19 @@ class ContextManager:
         "reserve": 10000,      # 预留给LLM推理+工具输出
     }
     
-    def __init__(self, max_tokens: int = 30000, budget: dict = None):
+    def __init__(self, max_tokens: int = 30000, budget: dict = None, prompt_manager: Optional[Any] = None):
         self.max_tokens = max_tokens
         self.budget = budget or self.DEFAULT_BUDGET.copy()
+        
+        # 初始化PromptManager（如果未提供则创建默认实例）
+        if prompt_manager is None and PromptManager is not None:
+            from .config import settings
+            prompt_manager = PromptManager(
+                prompts_dir=settings.prompts_dir,
+                version=settings.prompt_version
+            )
+        self.prompt_manager = prompt_manager
+        
         logger.info("ContextManager初始化，max_tokens=%d", max_tokens)
     
     def estimate_tokens(self, text: str) -> int:
@@ -129,10 +145,16 @@ class ContextManager:
         
         client = OpenAI(api_key=api_key, base_url=base_url)
         
+        # 使用PromptManager获取摘要prompt
+        if self.prompt_manager:
+            system_content = self.prompt_manager.get("summarization")
+        else:
+            system_content = "你是一个文本摘要专家。请提取以下内容的关键信息，生成简洁的摘要。保留重要的数据、结论和关键细节。"
+        
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "你是一个文本摘要专家。请提取以下内容的关键信息，生成简洁的摘要。保留重要的数据、结论和关键细节。"},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": f"请将以下内容压缩为不超过{max_tokens}个token的摘要：\n\n{text}"}
             ],
             max_tokens=int(max_tokens * 1.2),

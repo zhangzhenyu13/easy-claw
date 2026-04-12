@@ -15,6 +15,12 @@ from .models import Plan, Step, StepStatus
 
 logger = logging.getLogger("tir_agent.planning")
 
+# 导入PromptManager，用于类型提示
+try:
+    from ..prompt_manager import PromptManager
+except ImportError:
+    PromptManager = None
+
 
 class TaskPlanner:
     """
@@ -23,12 +29,13 @@ class TaskPlanner:
     使用LLM生成任务执行计划，支持任务复杂度评估和重新规划。
     """
     
-    def __init__(self, llm_config: dict):
+    def __init__(self, llm_config: dict, prompt_manager: Optional[Any] = None):
         """
         初始化任务规划器
         
         Args:
             llm_config: LLM配置字典，包含model, api_key, base_url等
+            prompt_manager: PromptManager实例（可选）
         """
         self.llm_config = llm_config
         self.model = llm_config.get("model", "qwen-max-latest")
@@ -40,6 +47,15 @@ class TaskPlanner:
             api_key=self.api_key,
             base_url=self.base_url,
         )
+        
+        # 初始化PromptManager（如果未提供则创建默认实例）
+        if prompt_manager is None and PromptManager is not None:
+            from ..config import settings
+            prompt_manager = PromptManager(
+                prompts_dir=settings.prompts_dir,
+                version=settings.prompt_version
+            )
+        self.prompt_manager = prompt_manager
         
         logger.info(f"TaskPlanner initialized with model: {self.model}")
     
@@ -95,7 +111,19 @@ class TaskPlanner:
             status = step.status.value if step.status else "pending"
             steps_info.append(f"- {step.id}: {step.description} [{status}]")
         
-        prompt = f"""你是一个任务规划助手。之前的计划执行失败，需要重新规划。
+        # 使用PromptManager获取prompt
+        if self.prompt_manager:
+            prompt = self.prompt_manager.get(
+                "planning_replan",
+                original_task=original_plan.task_description,
+                steps_info="\n".join(steps_info),
+                failed_step_id=failed_step.id,
+                failed_step_description=failed_step.description,
+                error=error
+            )
+        else:
+            # Fallback: 使用硬编码prompt
+            prompt = f"""你是一个任务规划助手。之前的计划执行失败，需要重新规划。
 
 原始任务: {original_plan.task_description}
 
@@ -163,7 +191,12 @@ class TaskPlanner:
         - 条件依赖
         - 需要多工具协作
         """
-        prompt = f"""评估以下任务的复杂度，只回复 "simple" 或 "complex"。
+        # 使用PromptManager获取prompt
+        if self.prompt_manager:
+            prompt = self.prompt_manager.get("planning_complexity", query=query)
+        else:
+            # Fallback: 使用硬编码prompt
+            prompt = f"""评估以下任务的复杂度，只回复 "simple" 或 "complex"。
 
 任务: {query}
 
@@ -296,7 +329,17 @@ class TaskPlanner:
         # 构建记忆上下文部分
         memory_text = f"\n\n历史记忆上下文:\n{memory_context}" if memory_context else ""
         
-        prompt = f"""你是一个任务规划助手。请将用户任务分解为可执行的步骤。
+        # 使用PromptManager获取prompt
+        if self.prompt_manager:
+            prompt = self.prompt_manager.get(
+                "planning_plan",
+                skills_text=skills_text,
+                memory_text=memory_text,
+                query=query
+            )
+        else:
+            # Fallback: 使用硬编码prompt
+            prompt = f"""你是一个任务规划助手。请将用户任务分解为可执行的步骤。
 
 可用技能列表:
 {skills_text}

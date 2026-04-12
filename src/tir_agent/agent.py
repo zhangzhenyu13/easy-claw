@@ -17,6 +17,7 @@ from .skills import SkillRegistry, BaseSkill
 from .planning import TaskPlanner, PlanExecutor
 from .planning.reasoner import StepReasoner
 from .context_manager import ContextManager
+from .prompt_manager import PromptManager
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -65,24 +66,6 @@ class TIRAgent:
     集成Memory记忆系统、Skills动态工具系统、Planning任务规划系统
     """
     
-    SYSTEM_PROMPT = """你是一个智能助手，具备以下能力：
-1. 分析和理解多种文件格式（图片、PDF、Word、Excel、PPT等）
-2. 执行Python代码进行数据处理和分析
-3. 使用VLM（视觉语言模型）分析图像内容
-4. 利用历史记忆提供上下文感知的回答
-5. 通过任务规划处理复杂多步骤任务
-
-当用户提出问题时，你应该：
-1. 首先理解用户的需求
-2. 分析提供的文件内容
-3. 如果涉及图像，使用VLM工具进行分析
-4. 如果需要计算或数据处理，使用代码执行工具
-5. 参考历史记忆（如果有）提供连贯的回答
-6. 综合所有信息，给出准确、有帮助的回答
-
-你总是以清晰、结构化的方式回答问题，并在需要时展示中间推理过程。
-"""
-    
     def __init__(
         self,
         llm_config: Optional[Dict[str, Any]] = None,
@@ -94,6 +77,7 @@ class TIRAgent:
         skill_dirs: Optional[List[str]] = None,
         memory_compression_threshold: Optional[int] = None,
         complexity_threshold: Optional[str] = None,
+        prompt_manager: Optional[PromptManager] = None,
         **kwargs
     ):
         """
@@ -107,17 +91,30 @@ class TIRAgent:
             memory_enabled: 是否启用记忆系统
             planning_enabled: 是否启用规划系统
             skill_dirs: 额外的Skill目录列表
+            prompt_manager: PromptManager实例（可选）
         """
         # 1. 加载配置（合并传入参数和Settings）
         self.settings = settings
         self.llm_config = llm_config or self.settings.get_llm_config()
         self.vlm_config = vlm_config or self.settings.get_vlm_config()
-        self.system_message = system_message or self.SYSTEM_PROMPT
+        
+        # 初始化PromptManager
+        self.prompt_manager = prompt_manager or PromptManager(
+            prompts_dir=self.settings.prompts_dir,
+            version=self.settings.prompt_version
+        )
+        
+        self.system_message = system_message or self.prompt_manager.get("system")
         self.tools = tools or ["code_interpreter", "vlm_analyzer"]
         
         # 保存构造参数，优先于settings
         self._compression_threshold = memory_compression_threshold or self.settings.memory_compression_threshold
         self._complexity_threshold = complexity_threshold or self.settings.complexity_threshold
+        
+        # 读取ReAct执行模式配置
+        self._execution_mode = self.settings.execution_mode  # "auto", "react" 或 "planning"
+        self._react_max_iterations = self.settings.react_max_iterations
+        self._max_react_per_step = self.settings.max_react_per_step
         
         # 2. 初始化SkillRegistry，发现并加载builtin Skills + 自定义Skills
         self.skill_registry = SkillRegistry()
@@ -138,7 +135,10 @@ class TIRAgent:
         
         # 创建 PlanExecutor，如果启用了 planning 则传入 reasoner
         if self._planning_enabled and self.planner:
-            self.step_reasoner = StepReasoner(llm_caller=self._llm_call_for_reasoner)
+            self.step_reasoner = StepReasoner(
+                llm_caller=self._llm_call_for_reasoner,
+                prompt_manager=self.prompt_manager
+            )
             self.plan_executor = PlanExecutor(
                 reasoner=self.step_reasoner,
                 max_tir_loops=self.settings.max_tir_loops
@@ -163,7 +163,8 @@ class TIRAgent:
         # 6. 初始化ContextManager
         try:
             self.context_manager = ContextManager(
-                max_tokens=self.settings.max_context_tokens if hasattr(self.settings, 'max_context_tokens') else 30000
+                max_tokens=self.settings.max_context_tokens if hasattr(self.settings, 'max_context_tokens') else 30000,
+                prompt_manager=self.prompt_manager
             )
             logger.info("ContextManager初始化完成")
         except Exception as e:
@@ -241,7 +242,7 @@ class TIRAgent:
     def _init_planner(self):
         """初始化Planning系统"""
         try:
-            self.planner = TaskPlanner(self.llm_config)
+            self.planner = TaskPlanner(self.llm_config, prompt_manager=self.prompt_manager)
             logger.info("Planning系统初始化完成")
         except Exception as e:
             logger.error(f"Planning系统初始化失败: {e}", exc_info=True)
@@ -419,6 +420,45 @@ class TIRAgent:
             logger.error(f"[Agent] LLM call for reasoner failed: {e}")
             return ""
     
+    def _build_tools_dict(self) -> dict:
+        """构建工具字典供 ReAct 模式使用"""
+        tools = {}
+        if self.skill_registry:
+            for skill_info in self.skill_registry.list_skills():
+                name = skill_info.get("name")
+                if name:
+                    skill = self.skill_registry.get(name)
+                    if skill:
+                        tools[name] = skill
+        return tools
+    
+    def _llm_caller(self, messages: list) -> str:
+        """封装 LLM 调用，供 ReAct 执行引擎使用"""
+        try:
+            # 使用 OpenAI 兼容 API 直接调用
+            import openai
+            
+            client = openai.OpenAI(
+                api_key=self.llm_config.get("api_key") or self.llm_config.get("dashscope_api_key"),
+                base_url=self.llm_config.get("base_url") or self.llm_config.get("model_server")
+            )
+            
+            model = self.llm_config.get("model", "qwen-max-latest")
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+                top_p=0.8,
+            )
+            
+            content = response.choices[0].message.content
+            return content if content else ""
+            
+        except Exception as e:
+            logger.error(f"[Agent] LLM caller failed: {e}")
+            return ""
+    
     def _execute_skill(self, skill_name: str, params: dict) -> str:
         """供PlanExecutor回调使用的Skill执行器"""
         # 记录Skill调用
@@ -434,11 +474,23 @@ class TIRAgent:
         logger.info("Skill [%s] 执行完成，结果长度: %d", skill_name, len(result) if result else 0)
         return result
     
-    def _on_step_complete(self, step):
-        """步骤完成回调，记录到Memory"""
+    def _on_step_start(self, step, plan):
+        """步骤开始回调 - 打印日志"""
+        logger.info(f"[Planning] 开始执行步骤 [{step.id}]: {step.description}")
+        logger.info(f"[Planning]   技能: {step.skill_name}, 依赖: {step.depends_on}")
+
+    def _on_step_complete(self, step, plan):
+        """步骤完成回调 - 打印日志并记录到Memory"""
+        from tir_agent.planning.models import StepStatus
+        if step.status == StepStatus.COMPLETED:
+            result_preview = (step.result[:100] + "...") if step.result and len(step.result) > 100 else (step.result or "")
+            logger.info(f"[Planning] 步骤 [{step.id}] 执行成功: {result_preview}")
+        else:
+            logger.warning(f"[Planning] 步骤 [{step.id}] 执行失败: {step.error}")
+        
+        # 记录到Memory
         if self.memory_manager and self._current_session_id:
             try:
-                import time
                 self.memory_manager.store.add_tool_call(
                     session_id=self._current_session_id,
                     tool_name=step.skill_name,
@@ -448,21 +500,33 @@ class TIRAgent:
                 )
             except Exception as e:
                 logger.error(f"Memory记录工具调用失败: {e}")
-    
-    def _on_replan(self, plan, failed_step, error):
-        """Planning 失败时的重规划回调。"""
+
+    def _on_replan(self, old_plan, new_plan_unused, failed_step):
+        """重规划回调 - 调用 planner.replan() 并返回新 Plan"""
+        logger.info(f"[Planning] 触发重规划，失败步骤: [{failed_step.id}] {failed_step.description}")
         if not self.planner:
-            logger.warning("[Agent] Replan requested but no planner available")
+            logger.warning("[Planning] Replan requested but no planner available")
             return None
         try:
-            logger.info(f"[Agent] Replanning due to step '{failed_step.id}' failure: {error[:200]}")
-            new_plan = self.planner.replan(plan, failed_step, error)
-            if new_plan:
-                logger.info(f"[Agent] Replan generated {len(new_plan.steps)} new steps")
-            return new_plan
+            new_plan = self.planner.replan(old_plan, failed_step, failed_step.error or "执行失败")
+            if new_plan and new_plan.steps:
+                logger.info(f"[Planning] 重规划成功，新计划: {len(new_plan.steps)} 个步骤")
+                return new_plan
+            else:
+                logger.warning("[Planning] 重规划返回空计划")
+                return None
         except Exception as e:
-            logger.error(f"[Agent] Replan failed: {e}")
+            logger.error(f"[Planning] 重规划失败: {e}")
             return None
+
+    def _format_plan_for_display(self, plan):
+        """将 Plan 格式化为 Markdown 用于展示"""
+        lines = ["**执行计划**\n"]
+        for i, step in enumerate(plan.steps, 1):
+            deps = f" (依赖: {', '.join(step.depends_on)})" if step.depends_on else ""
+            lines.append(f"{i}. **{step.description}**{deps}")
+            lines.append(f"   - 工具: `{step.skill_name}`")
+        return "\n".join(lines)
     
     def process_files(self, file_paths: List[str]) -> Dict[str, Any]:
         """
@@ -656,44 +720,105 @@ class TIRAgent:
         # 执行规划或直接调用Agent
         if use_planning:
             try:
-                logger.info("   📋 使用Planning系统执行任务...")
-                available_skills = self.skill_registry.list_skills()
-                plan = self.planner.plan(query, available_skills, memory_context)
-                logger.info(f"   📋 生成计划，共 {len(plan.steps)} 个步骤")
-                
-                # 执行计划
-                result = self.plan_executor.execute(
-                    plan, 
-                    skill_executor=self._execute_skill,
-                    on_step_complete=self._on_step_complete,
-                    on_replan=self._on_replan
-                )
-                
-                # 将plan执行结果格式化为响应
-                if result.success:
-                    response_content = result.final_answer
-                else:
-                    # 记录详细失败信息
-                    failed_steps_info = []
-                    for step in result.plan.steps:
-                        if step.status.value == "failed":
-                            failed_steps_info.append(f"  - [{step.id}] {step.skill_name}: {step.error or 'unknown'}")
-                    if failed_steps_info:
-                        logger.warning("Planning执行失败，失败步骤:\n%s", "\n".join(failed_steps_info))
+                # 根据执行模式选择: auto(双层), react(纯ReAct), planning(纯Planning)
+                if self._execution_mode == "auto":
+                    # ===== 双层模式：Planning + ReAct 执行 =====
+                    logger.info("   使用双层模式: Planning + ReAct")
                     
-                    response_content = f"任务执行遇到问题。\n\n{result.final_answer}"
-                    logger.warning("Planning执行失败，回退到直接Agent调用")
-                    use_planning = False
-                
-                if use_planning:
-                    yield [{"role": "assistant", "content": response_content}]
+                    # 第一层：生成计划
+                    available_skills = self.skill_registry.list_skills()
+                    available_skills_text = "\n".join([
+                        f"- {s.get('name', 'unknown')}: {s.get('description', '')}"
+                        for s in available_skills
+                    ])
+                    plan = self.planner.plan(query, available_skills_text, memory_context)
+                    
+                    if plan and plan.steps:
+                        # 打印计划日志
+                        logger.info("=" * 50)
+                        logger.info("[Planning] 生成执行计划，共 %d 个步骤", len(plan.steps))
+                        for step in plan.steps:
+                            deps = ", ".join(step.depends_on) if step.depends_on else "无"
+                            logger.info(f"  [{step.id}] {step.description} (skill: {step.skill_name}, 依赖: {deps})")
+                        logger.info("=" * 50)
+                        
+                        # yield 计划信息供 Streamlit 展示
+                        plan_display = self._format_plan_for_display(plan)
+                        yield [{"role": "assistant", "content": plan_display, "name": "planning"}]
+                        
+                        # 第二层：ReAct 执行
+                        tools = self._build_tools_dict()
+                        react_result = self.plan_executor.execute_planned_react(
+                            plan=plan,
+                            tools=tools,
+                            llm_caller=self._llm_caller,
+                            prompt_manager=self.prompt_manager,
+                            on_step_start=self._on_step_start,
+                            on_step_complete=self._on_step_complete,
+                            on_replan=self._on_replan,
+                            max_react_per_step=self._max_react_per_step,
+                            max_replan_count=3
+                        )
+                        
+                        response_content = react_result
+                        yield [{"role": "assistant", "content": response_content}]
+                        
+                        # 完成日志
+                        logger.info("=" * 50)
+                        logger.info("✅ 任务执行完成")
+                        logger.info(f"   Session ID: {self._current_session_id}")
+                        logger.info(f"   执行模式: Planning + ReAct (auto)")
+                        logger.info(f"   响应长度: {len(response_content)} 字符")
+                        logger.info("=" * 50)
+                        
+                        # 记录到Memory
+                        if self._memory_enabled and self.memory_manager:
+                            try:
+                                self.memory_manager.remember(
+                                    self._current_session_id,
+                                    enhanced_messages + [{"role": "assistant", "content": response_content}],
+                                    []
+                                )
+                                self.memory_manager.compress_if_needed(self._current_session_id)
+                            except Exception as e:
+                                logger.error(f"   ⚠️ 记忆存储失败: {e}")
+                        
+                        return
+                    else:
+                        # Planning 失败，回退到纯 ReAct
+                        logger.warning("[Planning] 计划生成失败，回退到 ReAct 模式")
+                        # 继续执行下面的 ReAct 逻辑
+                        
+                if self._execution_mode == "react" or (self._execution_mode == "auto" and not (plan and plan.steps)):
+                    # ===== 纯 ReAct 模式（调试用或auto回退）=====
+                    logger.info("   🔄 使用 ReAct 模式执行任务...")
+                    tools = self._build_tools_dict()
+                    react_result = self.plan_executor.execute_react(
+                        query=query,  # 用户原始问题
+                        tools=tools,
+                        llm_caller=self._llm_caller,
+                        memory_context=memory_context,  # 记忆上下文
+                        max_iterations=self._react_max_iterations,
+                        prompt_manager=self.prompt_manager
+                    )
+                    
+                    # yield 最终结果
+                    yield [{"role": "assistant", "content": react_result}]
+                    
+                    # 任务完成日志
+                    logger.info("=" * 50)
+                    logger.info("✅ 任务执行完成")
+                    logger.info(f"   Session ID: {self._current_session_id}")
+                    logger.info(f"   执行模式: ReAct")
+                    logger.info(f"   响应长度: {len(react_result)} 字符")
+                    logger.info("=" * 50)
                     
                     # 记录到Memory
                     if self._memory_enabled and self.memory_manager:
                         try:
                             self.memory_manager.remember(
                                 self._current_session_id,
-                                enhanced_messages + [{"role": "assistant", "content": response_content}],
+                                enhanced_messages + [{"role": "assistant", "content": react_result}],
                                 []
                             )
                             self.memory_manager.compress_if_needed(self._current_session_id)
@@ -701,9 +826,65 @@ class TIRAgent:
                             logger.error(f"   ⚠️ 记忆存储失败: {e}")
                     
                     return
+                    
+                else:
+                    # ===== 纯 Planning 模式（调试用）=====
+                    logger.info("   📋 使用Planning系统执行任务...")
+                    available_skills = self.skill_registry.list_skills()
+                    plan = self.planner.plan(query, available_skills, memory_context)
+                    logger.info(f"   📋 生成计划，共 {len(plan.steps)} 个步骤")
+                    
+                    # 执行计划
+                    result = self.plan_executor.execute(
+                        plan, 
+                        skill_executor=self._execute_skill,
+                        on_step_complete=lambda step: self._on_step_complete(step, plan),
+                        on_replan=lambda plan, failed_step, error: self._on_replan(plan, None, failed_step)
+                    )
+                    
+                    # 将plan执行结果格式化为响应
+                    if result.success:
+                        response_content = result.final_answer
+                    else:
+                        # 记录详细失败信息
+                        failed_steps_info = []
+                        for step in result.plan.steps:
+                            if step.status.value == "failed":
+                                failed_steps_info.append(f"  - [{step.id}] {step.skill_name}: {step.error or 'unknown'}")
+                        if failed_steps_info:
+                            logger.warning("Planning执行失败，失败步骤:\n%s", "\n".join(failed_steps_info))
+                        
+                        response_content = f"任务执行遇到问题。\n\n{result.final_answer}"
+                        logger.warning("Planning执行失败，回退到直接Agent调用")
+                        use_planning = False
+                    
+                    if use_planning:
+                        yield [{"role": "assistant", "content": response_content}]
+
+                        # 记录任务完成日志
+                        logger.info("=" * 50)
+                        logger.info("✅ 任务执行完成")
+                        logger.info(f"   Session ID: {self._current_session_id}")
+                        logger.info(f"   执行模式: Planning")
+                        logger.info(f"   响应长度: {len(response_content)} 字符")
+                        logger.info("=" * 50)
+
+                        # 记录到Memory
+                        if self._memory_enabled and self.memory_manager:
+                            try:
+                                self.memory_manager.remember(
+                                    self._current_session_id,
+                                    enhanced_messages + [{"role": "assistant", "content": response_content}],
+                                    []
+                                )
+                                self.memory_manager.compress_if_needed(self._current_session_id)
+                            except Exception as e:
+                                logger.error(f"   ⚠️ 记忆存储失败: {e}")
+
+                        return
                 
             except Exception as e:
-                logger.error(f"   ⚠️ Planning异常，回退到直接Agent调用: {e}")
+                logger.error(f"   ⚠️ Planning/ReAct 异常，回退到直接Agent调用: {e}")
                 use_planning = False
         
         # 如果不使用planning（包括回退情况），执行直接调用
@@ -775,7 +956,14 @@ class TIRAgent:
                 # 将未匹配结果的工具调用也记录下来
                 for tc in pending_tool_calls.values():
                     tool_calls_recorded.append(tc)
-                
+
+                # 记录任务完成日志
+                logger.info("=" * 50)
+                logger.info("✅ 任务执行完成")
+                logger.info(f"   Session ID: {self._current_session_id}")
+                logger.info(f"   执行模式: 直接调用")
+                logger.info("=" * 50)
+
                 # 4. 如果memory_enabled，记录对话
                 if self._memory_enabled and self.memory_manager:
                     try:
@@ -791,11 +979,16 @@ class TIRAgent:
                         logger.info("   💾 对话已记录到Memory")
                     except Exception as e:
                         logger.error(f"   ⚠️ 记忆存储失败: {e}")
-                
+
                 return
             except Exception as e:
+                logger.error("=" * 50)
+                logger.error("❌ 任务执行失败")
+                logger.error(f"   Session ID: {self._current_session_id}")
+                logger.error(f"   错误: {str(e)}")
+                logger.error("=" * 50)
                 logger.error(f"Qwen-Agent运行失败: {e}")
-        
+
         # 降级模式：使用简化的处理逻辑
         yield from self._fallback_run(enhanced_messages)
     
