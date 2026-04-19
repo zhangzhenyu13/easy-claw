@@ -1,84 +1,87 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
+# Project-specific
+.worktrees/
+.assets
+.docs
 .env
-.venv
-env/
+.web
+.orion
+
+# Python bytecode & caches
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+__pycache__/
+*.egg-info/
+*.egg
+.venv/
 venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.project
-.pydevproject
-.settings/
-
-# Testing
 .pytest_cache/
-.coverage
-htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.dmypy.json
+dmypy.json
 .tox/
+.nox/
 .hypothesis/
+
+# Build & packaging
+dist/
+build/
+*.manifest
+*.spec
+pip-wheel-metadata/
+share/python-wheels/
+
+# Test & coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Lock files (project policy)
+poetry.lock
+uv.lock
 
 # Jupyter
 .ipynb_checkpoints/
 
-# Distribution
-*.manifest
-*.spec
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Logs
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# Editors & IDEs (local workspace / user settings)
+.vscode/
+.cursor/
+.idea/
+.fleet/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+nano.*.save
+
+# Environment & secrets (keep examples tracked if needed)
+.env.*
+!.env.example
+
+# Logs & temp
 *.log
 logs/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Local configuration
-.env.local
-.env.*.local
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.swp
-
-# OS files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Project specific
-temp/
 tmp/
-uploads/
+temp/
+*.tmp

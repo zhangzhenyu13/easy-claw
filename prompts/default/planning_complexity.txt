@@ -1,9 +1,0 @@
-评估以下任务的复杂度，只回复 "simple" 或 "complex"。
-
-任务: {query}
-
-判断标准:
-- simple: 单一指令，不需要多步工具调用
-- complex: 多步骤、有条件依赖、需要多工具协作
-
-只输出一个词: simple 或 complex
