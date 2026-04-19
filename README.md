@@ -12,53 +12,32 @@ EasyClaw is developed based on [Nanobot](https://github.com/HKUDS/nanobot), with
 ```
    ╔═════════════════════════════════════════════════════════════════╗
    ║                    EasyClaw  Runtime Stack                      ║
-   ╚═════════════════════════════════════════════════════════════════╝
-
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ① Public Support Layer                                         │
-   │     Config Center · State Hub · Monitoring & Tracing           │
-   │     Exception Guard · Tool Pool  (incl. Web Search Tools)      │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ② Web-Enhanced Decision Layer                        ★ NEW    │
+   ╠═════════════════════════════════════════════════════════════════╣
+   │  ①  Public Support Layer                                        │
+   │     Config Center · State Hub · Monitoring · Exception Guard    │
+   │     Tool Pool  (incl. Web Search Tools)                        │
+   ├─────────────────────────────────────────────────────────────────┤
+   │  ②  Web-Enhanced Decision Layer                       ★ NEW    │
    │     Search Decision Engine · Retrieval Executor                │
    │     Information Purifier & Injector                            │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ③ Closed-Loop Control Layer                          ★ NEW    │
+   ├─────────────────────────────────────────────────────────────────┤
+   │  ③  Closed-Loop Control Layer                         ★ NEW    │
    │     Feedback Collector · Task Evaluator · Re-planning Engine   │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ④ Planning & Scheduling Layer                                  │
+   ├─────────────────────────────────────────────────────────────────┤
+   │  ④  Planning & Scheduling Layer                                  │
    │     Top-Level Master Planner · Recursive Depth Controller      │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ⑤ Execution Engine Layer                                       │
+   ├─────────────────────────────────────────────────────────────────┤
+   │  ⑤  Execution Engine Layer                                       │
    │     Reactive Event Bus (ReAct Core) · DAG Dependency Scheduler │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ⑥ Execution Unit Layer                                         │
-   │     SubAgent Resource Pool                                     │
-   │     Recursive Decomposition + Atomic Execution (Configurable)  │
-   └──────────────────────────────┬──────────────────────────────────┘
-                                  │ observes execution history (async)
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │  ⑦ Skill Distillation Layer                          ★ NEW    │
-   │                                                                 │
-   │   Dream          cron every 2 h  ·  /dream cmd                │
-   │                  └─ memory consolidation → dreamed-* skills    │
-   │                                                                 │
-   │   Hermes-Autogen every 10 tool calls  ·  /skill-autogen cmd    │
-   │                  └─ tool-usage distillation → hermes-* skills  │
-   │                                                                 │
-   │   ↑  Distilled skills auto-loaded into ① Tool Pool on reuse   │
-   └─────────────────────────────────────────────────────────────────┘
+   ├─────────────────────────────────────────────────────────────────┤
+   │  ⑥  Execution Unit Layer                                         │
+   │     SubAgent Pool · Recursive Decomposition (Configurable)     │
+   ╠════════════════════ ▼ async · observes history ═══════════════════╣
+   │  ⑦  Skill Distillation Layer                          ★ NEW    │
+   │     Dream:  cron 2h · /dream  →  dreamed-* skills             │
+   │     Hermes: ×10 calls · /skill-autogen  →  hermes-* skills    │
+   │     ↑  Skills fed back into ① Tool Pool                        │
+   ╚═════════════════════════════════════════════════════════════════╝
 ```
 
 ## Quick Start
