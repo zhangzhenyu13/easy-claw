@@ -52,6 +52,9 @@ EasyClaw is developed based on [Nanobot](https://github.com/HKUDS/nanobot), with
    nanobot gateway
    ```
 
+## EasyClaw Advantages
+![EasyClaw Advantages](docs/easyclaw_page.png)
+
 ## Skill Distillation
 
 EasyClaw supports two orthogonal skill distillation modes that can run independently or simultaneously.
